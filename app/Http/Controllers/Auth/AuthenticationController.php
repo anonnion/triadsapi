@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
+use App\Models\Email;
 use App\Models\Profile;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 
 class AuthenticationController extends Controller
 {
@@ -172,15 +174,62 @@ class AuthenticationController extends Controller
             $request->validate([
                 'email' => 'required|email|unique:users'
             ]);
-            $email = User::whereEmail($request->email)->first();
-
-            if ($email) {
+            $user = User::whereEmail($request->email)->first();
+            if ($user) {
                 return response([
                     'message' => $request->email . ' ' . 'has been taken'
                 ], 201);
             } else {
+                $token = random_int(111111,999999);
+                Email::where('email', '=', $request->email)->delete();
+                $email = new Email;
+                $email->email = $request->email;
+                $email->verify_token = $token;
+                $email->save();
+                $message = `
+                Your one-time password is: {$token}
+                `;
+                $this->token_email($request->email, $token);
                 return response([
                     'message' => $request->email . ' ' . ' is available'
+                ], 200);
+            }
+        } catch (\Exception $e) {
+            return response([
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function token_email($email, $token) {
+        $data = array('token'=>$token);
+
+        $stat = Mail::send(['html'=>'mail.verify'], $data, function($message) use ($email, $token) {
+           $message->to($email, $email.' on Triads')->subject
+              ("Triads Entertainment: Verify Your email - Your One-Time Password");
+           $message->from('noreply@triads.ng','Triads Entertainment');
+        });
+        return $stat;
+     }
+
+    public function verifyEmail(Request $request)
+    {
+        try {
+            $request->validate([
+                'email' => 'required|email|unique:users',
+                'token' => 'required|numeric',
+            ]);
+            $email = Email::where('email', '=', $request->email)->first();
+            $user = User::whereEmail($request->email)->first();
+            if ($user || !$email || $email->verify_token != $request->token) {
+                return response([
+                    'message' => 'Invalid token'
+                ], 201);
+            } else {
+                $email->verify_timestamp = time();
+                $email->save();
+                return response([
+                    'message' => $request->email . ' ' . ' is now verified'
                 ], 200);
             }
         } catch (\Exception $e) {

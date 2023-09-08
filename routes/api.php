@@ -38,3 +38,4 @@ Route::post('register', [AuthenticationController::class, 'register'])->middlewa
 Route::post('login', [AuthenticationController::class, 'login'])->middleware('res');
 Route::post('check/username', [AuthenticationController::class, 'checkUsername']);
 Route::post('check/email', [AuthenticationController::class, 'checkEmail']);
+Route::post('verify/email', [AuthenticationController::class, 'verifyEmail']);

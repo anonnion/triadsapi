@@ -141,7 +141,7 @@ class PostController extends Controller
                 ], 200);
             } else {
                 return response([
-                    'message' => 'Cant comment'
+                    'message' => 'Can\'t comment'
                 ], 500);
             }
         } catch (\Exception $e) {
