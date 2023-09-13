@@ -40,18 +40,60 @@ class AuthenticationController extends Controller
 
     public function register(RegisterRequest $registerRequest)
     {
+        $email = Email::where('email', '=', $registerRequest->email)->first();
+        if($email->verify_timestamp != $registerRequest->token)
+        {
+            return response([
+                'message' => "Invalid token"
+            ], 404);
+        }
+        $username = '';
+        try {
+            if($registerRequest->username && strstr($registerRequest->username, 'playerId:')){
+                $ch = curl_init();
+                $playerId = explode(':', $registerRequest->username)[1];
+                curl_setopt($ch, CURLOPT_URL, 'https://order-sg.codashop.com/initPayment.action');
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+                curl_setopt($ch, CURLOPT_POST, 1);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, "voucherPricePoint.id=308088&voucherPricePoint.price=450.0&voucherPricePoint.variablePrice=0&email&userVariablePrice=0&user.userId=$playerId&user.zoneId&msisdn&voucherTypeName=CALL_OF_DUTY_ACTIVISION&voucherTypeId=183&gvtId=231&shopLang=en_NG&affiliateTrackingId&impactClickId&anonymousId&fullUrl=https%3A%2F%2Fwww.codashop.com%2Fen-ng%2Fcall-of-duty-mobile&userEmailConsent=false&userMobileConsent=false&verifiedMsisdn&promoId&promoCode&clevertapId&promotionReferralCode");
+
+                $headers = array();
+                $headers[] = 'Accept: application/json';
+                $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+                $headers[] = 'X-Session-Country2name: NG';
+                $headers[] = 'Host: order-sg.codashop.com';
+                $headers[] = 'Origin: https://www.codashop.com';
+                $headers[] = 'Referer: https://www.codashop.com/';
+                curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+                $result = curl_exec($ch);
+                if (curl_errno($ch)) {
+                    return response([
+                        'message' => curl_error($ch)
+                    ], 500);
+                }
+                curl_close($ch);
+                $username = json_decode($result)->confirmationFields->username;
+            }
+        } catch (\Throwable $th) {
+            //throw $th;
+            // return response([
+            //     'message' => $th
+            // ], 500);
+            $username = $registerRequest->username;
+        }
         DB::beginTransaction();
         try {
-            $uploadUrl = $this->get_upload_url();
-            $url = $uploadUrl['uploadUrl'];
-            $authT = $uploadUrl['authToken'];
+            // $uploadUrl = $this->get_upload_url();
+            // $url = $uploadUrl['uploadUrl'];
+            // $authT = $uploadUrl['authToken'];
             //dd($uploadUrl);
             // validate request
             //$registerRequest->validated();
             // data to insert to table
             $data = [
                 'email' => $registerRequest->email,
-                'username' => $registerRequest->username,
+                'username' => $username,
                 'password' => Hash::make($registerRequest->password)
             ];
             // check if image is passed and add to data
@@ -102,7 +144,10 @@ class AuthenticationController extends Controller
             $user = User::create($data);
             $token = $user->createToken('triads')->plainTextToken;
             if ($user) {
-                Profile::create(['user_id' => $user->id]);
+                $names = str_getcsv($email->full_name, " ");
+                $fn = array_shift($names);
+                $ln = implode(' ', $names);
+                Profile::create(['user_id' => $user->id, 'firstname' => $fn, 'lastname' => $ln]);
                 DB::commit();
                 return response([
                     'message' => 'success',
@@ -149,13 +194,15 @@ class AuthenticationController extends Controller
     {
         try {
             $request->validate([
-                'username' => 'required'
+                'username' => 'required',
+                'token' => 'required|number',
             ]);
+            $token = Email::where('verify_timestamp', '=', $request->token)->first();
             $username = User::whereUsername($request->username)->first();
             if ($username) {
                 return response([
                     'message' => $request->username . ' ' . 'has been taken'
-                ], 201);
+                ], 409);
             } else {
                 return response([
                     'message' => $request->username . ' ' . ' is available'
@@ -172,26 +219,26 @@ class AuthenticationController extends Controller
     {
         try {
             $request->validate([
-                'email' => 'required|email|unique:users'
+                'email' => 'required|email',
+                'full_name' => 'required',
             ]);
             $user = User::whereEmail($request->email)->first();
             if ($user) {
                 return response([
                     'message' => $request->email . ' ' . 'has been taken'
-                ], 201);
+                ], 409);
             } else {
                 $token = random_int(111111,999999);
                 Email::where('email', '=', $request->email)->delete();
                 $email = new Email;
                 $email->email = $request->email;
+                $email->full_name = $request->full_name;
                 $email->verify_token = $token;
+                $email->expires_at = time() + (60*15); // Expires in 15 minutes
                 $email->save();
-                $message = `
-                Your one-time password is: {$token}
-                `;
-                $this->token_email($request->email, $token);
+                $this->token_email($request->full_name, $request->email, $token);
                 return response([
-                    'message' => $request->email . ' ' . ' is available'
+                    'message' => $request->email . ' ' . ' is available, token has been sent to email address'
                 ], 200);
             }
         } catch (\Exception $e) {
@@ -201,12 +248,12 @@ class AuthenticationController extends Controller
         }
     }
 
-    public function token_email($email, $token) {
-        $data = array('token'=>$token);
+    public function token_email($full_name, $email, $token) {
+        $data = array('token'=>$token, 'full_name'=>$full_name);
 
-        $stat = Mail::send(['html'=>'mail.verify'], $data, function($message) use ($email, $token) {
+        $stat = Mail::send(['html'=>'mail.verify'], $data, function($message) use ($email, $full_name) {
            $message->to($email, $email.' on Triads')->subject
-              ("Triads Entertainment: Verify Your email - Your One-Time Password");
+              ("Verify Your email, $full_name");
            $message->from('noreply@triads.ng','Triads Entertainment');
         });
         return $stat;
@@ -225,11 +272,14 @@ class AuthenticationController extends Controller
                 return response([
                     'message' => 'Invalid token'
                 ], 201);
+            } elseif (time() > $email->expires_at) {
+
             } else {
-                $email->verify_timestamp = time();
+                $email->verify_timestamp = time() + random_int(111111,999999);
                 $email->save();
                 return response([
-                    'message' => $request->email . ' ' . ' is now verified'
+                    'message' => $request->email . ' ' . ' is now verified',
+                    'token' => $email->verify_timestamp,
                 ], 200);
             }
         } catch (\Exception $e) {
