@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('videos', [PostController::class, 'index']);
+    Route::post('videos/search', [PostController::class, 'search']);
     Route::post('video/upload', [PostController::class, 'store']);
     Route::post('user/follow/{user_id}', [UserRelationShipController::class, 'followandunfollow']);
     Route::get('user', [UserController::class, 'index']);
@@ -33,6 +34,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('create/challenge/room', [RoomController::class, 'store']);
     Route::get('rooms', [RoomController::class, 'index']);
     Route::post('profile_photo/update', [AuthenticationController::class, 'profile_photo']);
+    Route::get('all_notifications', [UserController::class, 'allMyNotifications']);
+    Route::get('read_notifications', [UserController::class, 'readNotifications']);
+    Route::get('unread_notifications', [UserController::class, 'unreadNotifications']);
 });
 
 Route::post('register', [AuthenticationController::class, 'register'])->middleware('res');

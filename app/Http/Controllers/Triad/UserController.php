@@ -22,7 +22,7 @@ class UserController extends Controller
         } catch (\Exception $e) {
             return response([
                 'message' => $e->getMessage(),
-            ]);
+            ], 500);
         }
     }
 
@@ -37,9 +37,53 @@ class UserController extends Controller
         } catch (\Exception $e) {
             return response([
                 'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+    public function unreadNotifications() {
+        if(auth()->user()->unreadNotifications)
+        {
+            return response([
+                'message' => "success",
+                'notifications' => auth()->user()->unreadNotifications,
             ]);
         }
     }
+
+    public function readNotifications() {
+        if(auth()->user()->readNotifications)
+        {
+            return response([
+                'message' => "success",
+                'notifications' => auth()->user()->readNotifications,
+            ]);
+        }
+    }
+
+    public function allMyNotifications() {
+        try {
+            $notifications = [];
+        if(auth()->user()->readNotifications)
+        {
+            $notifications["read"] = auth()->user()->readNotifications;
+        }
+
+        if(auth()->user()->unreadNotifications)
+        {
+            $notifications["unread"] = auth()->user()->unreadNotifications;
+        }
+            return response([
+                'message' => "success",
+                'notifications' => $notifications,
+            ]);
+        } catch (\Exception $e) {
+            //throw $th;
+            return response([
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
 
     public function updateProfile(Request $request)
     {

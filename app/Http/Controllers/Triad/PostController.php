@@ -8,6 +8,9 @@ use App\Http\Resources\VideoResource;
 use App\Models\Comment;
 use App\Models\LikeVideo;
 use App\Models\Video;
+use App\Notifications\NewLikeOnVideo;
+use App\Notifications\NewVideoFromFollowing;
+use App\Notifications\NewVideoFromFollowingFollowing;
 use Illuminate\Http\Request;
 
 class PostController extends Controller
@@ -29,12 +32,28 @@ class PostController extends Controller
         }
     }
 
+    public function search(Request $request)
+    {
+        try {
+            $videos = Video::where('description', 'LIKE', "%{$request->search}%")->with('user')->with('likes')->with('comments')->latest()->get();
+            $videos = VideoResource::collection($videos);
+            return response([
+                'message' => 'success',
+                'videos' => $videos
+            ], 200);
+        } catch (\Exception $e) {
+            return response([
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function view($videoId)
     {
         try {
             $video = Video::with('user')->whereId($videoId)->first();
             if ($video) {
-                Video::with('user')->whereId($videoId)->update(['video_popularity', '0.01']);
+                // Video::with('user')->whereId($videoId)->update("video_popularity", "0.01");
                 return response([
                     'message' => 'success',
                     'video' => $video
@@ -54,11 +73,11 @@ class PostController extends Controller
     public function like($videoId)
     {
         try {
-            $video = Video::whereId($videoId)->first();
+            $video = Video::whereId($videoId)->with("user")->first();
             if ($video) {
                 $like = LikeVideo::whereUserId(auth()->id())->whereVideoId($videoId)->first();
                 if (empty($like)) {
-                    Video::whereId($videoId)->update(['video_popularity' => '0.01']);
+                    Video::whereId($videoId)->update(['video_popularity' => $video->video_popularity + 0.01]);
                     LikeVideo::create([
                         'user_id' => auth()->id(),
                         'video_id' => $videoId
@@ -66,6 +85,7 @@ class PostController extends Controller
                 } else {
                     LikeVideo::whereUserId(auth()->id())->whereVideoId($videoId)->delete();
                 }
+                \App\Models\User::find($video->user->id)->notify(new NewLikeOnVideo($video->id, auth()->id()));
                 return response([
                     'message' => 'success',
                     'likes' => LikeVideo::whereVideoId($videoId)->count(),
@@ -107,6 +127,23 @@ class PostController extends Controller
 
             $save_video = auth()->user()->videos()->create($data);
             if ($save_video) {
+                $video = Video::whereId($save_video->id)->first();
+                $followers = \App\Models\User::find(auth()->id())->is_followers;
+                if($followers)
+                {
+                    foreach ($followers as $follower)
+                    {
+                        \App\Models\User::find($follower)->notify(new NewVideoFromFollowing(auth()->id(), $video->id));
+                        $followerFollowers = \App\Models\User::find($follower)->is_followers;
+                        if($followerFollowers)
+                        {
+                            foreach ($followerFollowers as $followerFollower)
+                            {
+                                \App\Models\User::find($followerFollower)->notify(new NewVideoFromFollowingFollowing($followerFollower, auth()->id(), $video->id));
+                            }
+                        }
+                    }
+                }
                 return response([
                     'message' => 'success',
                     'video' => $save_video
@@ -135,6 +172,8 @@ class PostController extends Controller
                 'content' => $request->comment,
             ]);
             if ($com) {
+                $video = Video::whereId($request->video_id)->with("user")->first();
+                \App\Models\User::find($video->user->id)->notify(new NewLikeOnVideo($video->id, auth()->id()));
                 return response([
                     'message' => 'success',
                     'comment_count' => Comment::whereVideoId($request->video_id)->count(),

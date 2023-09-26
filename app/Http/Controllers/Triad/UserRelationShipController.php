@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Triad;
 
 use App\Http\Controllers\Controller;
 use App\Models\UserRelationship;
+use App\Notifications\NewFollower;
 use Illuminate\Http\Request;
 
 class UserRelationShipController extends Controller
@@ -19,6 +20,7 @@ class UserRelationShipController extends Controller
                     'user_id' => auth()->id(),
                     'related_user_id' => $userId
                 ]);
+                \App\Models\User::find($userId)->notify(new NewFollower(auth()->id()));
                 return response([
                     'status' => true
                 ]);
