@@ -32,6 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('video/comments/{id}', [PostController::class, 'fetchComments']);
     Route::post('create/challenge/room', [RoomController::class, 'store']);
     Route::get('rooms', [RoomController::class, 'index']);
+    Route::post('profile_photo/update', [AuthenticationController::class, 'profile_photo']);
 });
 
 Route::post('register', [AuthenticationController::class, 'register'])->middleware('res');

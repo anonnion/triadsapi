@@ -22,20 +22,52 @@ class AuthenticationController extends Controller
 
     public function __construct()
     {
-        $this->client = Http::withBasicAuth('00582ea9563c5e60000000002', 'K005gLZt0Sqn4Z1mtT/LN8edvfcsBmI')
-            ->get('https://api.backblazeb2.com/b2api/v3/b2_authorize_account');
-        $this->authToken = $this->client['authorizationToken'];
+        // $this->client = Http::withBasicAuth('00582ea9563c5e60000000002', 'K005gLZt0Sqn4Z1mtT/LN8edvfcsBmI')
+        //     ->get('https://api.backblazeb2.com/b2api/v3/b2_authorize_account');
+        // $this->authToken = $this->client['authorizationToken'];
         //dd($this->client['apiInfo']);
     }
 
     public function get_upload_url()
     {
-        $req = Http::withHeaders(['Authorization' => $this->authToken])
-            ->get('https://api005.backblazeb2.com/b2api/v2/b2_get_upload_url?bucketId=' . getenv('BUCKET_ID'));
-        return [
-            'authToken' => $req['authorizationToken'],
-            'uploadUrl' => $req['uploadUrl'],
-        ];
+        // $req = Http::withHeaders(['Authorization' => $this->authToken])
+        //     ->get('https://api005.backblazeb2.com/b2api/v2/b2_get_upload_url?bucketId=' . getenv('BUCKET_ID'));
+        // return [
+        //     'authToken' => $req['authorizationToken'],
+        //     'uploadUrl' => $req['uploadUrl'],
+        // ];
+    }
+
+    public function profile_photo(Request $request) {
+        if ($request->hasFile('profile_photo')) {
+            $request->validate([
+                'profile_photo' => 'mimes:jpeg,png,jpg',
+            ]);
+            //$file = $registerRequest->file('profile_photo');
+            $user =  auth('sanctum')->user();
+            if(!$user) {
+                return response([
+                    'message' => "User not found"
+                ], 404);
+            }
+            $photo_dir = 'public/images/profile_photo/'.$user->id;
+            $dir = 'storage/images/profile_photo/'.$user->id;
+            if(!is_dir($dir))
+            {
+                mkdir($dir, 0777, true);
+                $e = chmod($dir, 0777);
+            }
+            $image = $request->file('profile_photo');
+            $image_name = uniqid().uniqid().($image->getExtension() ? '.'.$image->getExtension() : ".jpg");
+            $path = $request->file('profile_photo')->storeAs($photo_dir, rand(0, 50) . $image_name);
+            $user->profile_photo = str_replace('public/',"https://dev-api.triads.ng/storage/",$path);
+            $user->save();
+            return response([
+                'message' => "Profile photo saved successfully",
+                'profile_photo' => $user->profile_photo,
+                'status' => $e ? 'success' : 'error',
+            ], 201);
+        }
     }
 
     public function register(RegisterRequest $registerRequest)
@@ -80,8 +112,8 @@ class AuthenticationController extends Controller
             // return response([
             //     'message' => $th
             // ], 500);
-            $username = $registerRequest->username;
         }
+        if($username == "") $username = $registerRequest->username;
         DB::beginTransaction();
         try {
             // $uploadUrl = $this->get_upload_url();
@@ -172,15 +204,21 @@ class AuthenticationController extends Controller
         try {
             $loginRequest->validated();
             // check user
-            $user = User::whereUsername($loginRequest->username)->first();
+            $user = User::whereUsername($loginRequest->username)->first() ?? User::Where('email', '=', $loginRequest->username)->first();
             if (!$user || !Hash::check($loginRequest->password, $user->password)) {
                 return response([
-                    'message' => 'Invalid Credentials'
+                    'message' => 'Invalid Credentials',
+                    'user' => $user
                 ], 400);
             }
             $token = $user->createToken('triads')->plainTextToken;
             return response([
-                'user' => $user,
+                'user' => [
+                    'id' => $user->id,
+                    'email' => $user->email,
+                    'username' => $user->username,
+                    'profile_photo' => $user->profile_photo,
+                ],
                 'token' => $token
             ]);
         } catch (\Exception $e) {
@@ -195,9 +233,15 @@ class AuthenticationController extends Controller
         try {
             $request->validate([
                 'username' => 'required',
-                'token' => 'required|number',
+                'token' => 'required|numeric',
             ]);
             $token = Email::where('verify_timestamp', '=', $request->token)->first();
+            if(!$token) return response([
+                'message' => 'Invalid token provided'
+            ], 403);
+            if(time() > $token->expires_at) return response([
+                'message' => 'Token expired'
+            ], 403);
             $username = User::whereUsername($request->username)->first();
             if ($username) {
                 return response([
@@ -271,7 +315,7 @@ class AuthenticationController extends Controller
             if ($user || !$email || $email->verify_token != $request->token) {
                 return response([
                     'message' => 'Invalid token'
-                ], 201);
+                ], 403);
             } elseif (time() > $email->expires_at) {
 
             } else {
